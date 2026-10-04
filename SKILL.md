@@ -1,11 +1,11 @@
 ---
 name: uzyiot-api
-description: 有智云智能物联网平台（https://prod.uzyiot.com）开发者接入 REST API 封装。基于《有智云物联网平台操作手册》第十章「开发者接入指南」，提供应用侧凭证（AppID/AppSecret）换取 Token，以及产品查询、设备查询、设备在线状态、设备实时数据、设备历史数据等全部 REST 接口，并额外提供设备控制指令下发（平台扩展接口）的 Python CLI 调用能力。适用于第三方系统/AI 应用通过 HTTP 对接有智云平台做数据同步、设备查询与设备控制。
+description: 有智云智能物联网平台（https://prod.uzyiot.com）开发者接入 REST API 封装。提供应用侧凭证（AppID/AppSecret）换取 Token，以及产品查询、设备查询、设备在线状态、设备实时数据、设备历史数据等全部 REST 接口，并额外提供设备控制指令下发（平台扩展接口）的 Python CLI 调用能力。适用于第三方系统/AI 应用通过 HTTP 对接有智云平台做数据同步、设备查询与设备控制。
 ---
 
 # 有智云物联网平台 开发者接入 API
 
-通过一个 Python CLI 脚本（仅依赖标准库）调用有智云平台第十章「开发者接入指南」中的全部 REST API。
+通过一个 Python CLI 脚本（仅依赖标准库）调用有智云物联网平台开发者接入的全部 REST API。
 
 **接入地址：** `https://prod.uzyiot.com`
 **脚本路径：** `scripts/uzyiot_api.py`
@@ -255,7 +255,7 @@ python3 scripts/uzyiot_api.py history-list --addr <addr> \
 
 对应接口：`POST /iotapi/system/control/device`
 
-> 说明：本接口为平台扩展接口（非操作手册第十章范围）。后端收到后会组装物模型「写」消息并通过内部 MQTT（`p/in/<addr>`）下发给设备；设备在线才会真正到达，离线时接口仍返回成功但不下发。
+> 说明：本接口为平台扩展接口。后端收到后会组装物模型「写」消息并通过内部 MQTT（`p/in/<addr>`）下发给设备；设备在线才会真正到达，离线时接口仍返回成功但不下发。
 
 | 参数 | 必填 | 默认 | 说明 |
 |------|------|------|------|
@@ -316,5 +316,5 @@ python3 scripts/uzyiot_api.py device-control --addr <addr> --name <var> --value 
 ## 备注
 
 - 脚本仅使用 Python 标准库（`urllib`），无需安装第三方依赖，`python3` 即可运行。
-- 本 skill 覆盖操作手册第十章的 **REST API**，外加平台扩展的 **设备控制接口**（`device-control`，非手册第十章）；设备侧 MQTT/TCP 接入与应用侧 MQTT 实时订阅（10.5/10.9/10.10/10.11）属于长连接协议，不在本 CLI 范围内，如需请参考操作手册对应章节。
+- 本 skill 覆盖开发者接入的 **REST API**，外加平台扩展的 **设备控制接口**（`device-control`）；设备侧 MQTT/TCP 接入与应用侧 MQTT 实时订阅属于长连接协议，不在本 CLI 范围内。
 - 查看所有子命令：`python3 scripts/uzyiot_api.py -h`；查看单个子命令参数：`python3 scripts/uzyiot_api.py <command> -h`。
