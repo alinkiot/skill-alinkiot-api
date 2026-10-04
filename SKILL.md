@@ -12,6 +12,32 @@ description: 有智云智能物联网平台（https://prod.uzyiot.com）开发�
 
 ---
 
+## 快速开始（安装）
+
+1. **获取代码**：`git clone <本仓库地址>`，进入 skill 目录（`uzyiot-api/`）。
+
+2. **运行环境**：仅需 `python3`（标准库实现，无需 `pip install` 任何依赖）。
+   ```bash
+   python3 --version   # 确认有 python3 即可
+   ```
+
+3. **配置凭证**：仓库不含 `env.ini`（已被 `.gitignore` 忽略），需从模板复制并填入自己的配置：
+   ```bash
+   cp env.ini.example env.ini
+   # 编辑 env.ini，填入 host / appId / Secret
+   ```
+   `appId` / `Secret` 在平台「项目管理 → 应用接入」创建应用后获取；`host` 按目标平台填写。
+
+4. **验证**：
+   ```bash
+   python3 scripts/uzyiot_api.py login          # 返回 code 200 即配置成功
+   python3 scripts/uzyiot_api.py product-list   # 查询产品列表
+   ```
+
+> 不想用 `env.ini` 时，也可用 `--token` 或 `--app-id/--app-secret` 直接传参，或设置环境变量（见下节「凭证获取规则」）。
+
+---
+
 ## 调用前必读：凭证获取规则
 
 所有 API 调用都需要鉴权。凭证来自平台的 **应用接入（AppID/AppSecret）**：
