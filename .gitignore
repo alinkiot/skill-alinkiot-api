@@ -1,0 +1,6 @@
+# 含 appId/Secret 等凭证，禁止提交
+env.ini
+
+# Python 缓存
+__pycache__/
+*.pyc
