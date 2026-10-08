@@ -15,7 +15,7 @@
 把下面这句话（带上你的凭证）交给 agent，它会自动从仓库拉取、放到正确的 skill 目录，并用凭证完成配置：
 
 > 帮我安装这个 SKILL：https://github.com/alinkiot/uzyiot-api
-> 其中 appId=xxxx，Secret=xxxxx
+> 其中 host=http://x.x.x.x, appId=xxxx，Secret=xxxxx
 
 运行环境仅需 `python3`（标准库实现，无需 `pip install` 任何依赖），agent 会自动确认。
 
@@ -23,7 +23,7 @@
 
 安装时若已带上凭证，agent 会自动从模板生成 `env.ini` 并填入（`env.ini` 已被 `.gitignore` 忽略，不会提交）。也可以之后单独补：
 
-> 用这些配置初始化：host=http://119.91.212.202，appId=sxxxxx，Secret=xxxx
+> 用这些配置初始化：host=http://x.x.x.x，appId=sxxxxx，Secret=xxxx
 
 | 配置项 | 说明 |
 |--------|------|
