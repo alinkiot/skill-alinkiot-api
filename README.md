@@ -8,34 +8,21 @@
 
 ## 使用说明
 
+整个流程——安装、配置、验证、调用——都交给 AI agent 完成，你只需用自然语言把需求交给它。
+
 ### 1. 安装这个 SKILL
 
-```bash
-git clone https://github.com/alinkiot/uzyiot-api
-cd uzyiot-api
-```
+把下面这句话交给 agent，由它自动从仓库拉取并放到正确的 skill 目录：
 
-运行环境仅需 `python3`（标准库实现，无需 `pip install` 任何依赖）：
+> 帮我安装这个 SKILL：https://github.com/alinkiot/uzyiot-api
 
-```bash
-python3 --version   # 确认有 python3 即可
-```
+运行环境仅需 `python3`（标准库实现，无需 `pip install` 任何依赖），agent 会自动确认。
 
 ### 2. 配置
 
-安装完后，从模板复制一份配置文件并填入自己的凭证（`env.ini` 已被 `.gitignore` 忽略，不会提交）：
+把你的凭证交给 agent，由它从模板生成 `env.ini` 并填入（`env.ini` 已被 `.gitignore` 忽略，不会提交）：
 
-```bash
-cp env.ini.example env.ini
-```
-
-编辑 `env.ini`，配置如下：
-
-```ini
-host=http://119.91.212.202
-appId=sxxxxx
-Secret=xxxx
-```
+> 用这些配置初始化：host=http://119.91.212.202，appId=sxxxxx，Secret=xxxx
 
 | 配置项 | 说明 |
 |--------|------|
@@ -43,13 +30,12 @@ Secret=xxxx
 | `appId` | 应用 AppID |
 | `Secret` | 应用 AppSecret |
 
-其中 `appId`、`Secret` 需要在管理后台的 **应用对接** 中创建一个应用后获取。
+其中 `appId`、`Secret` 需要先在管理后台的 **应用对接** 中创建一个应用后获取，再把值交给 agent。
 
-### 3. 验证
+### 3. 验证与调用
 
-```bash
-python3 scripts/uzyiot_api.py login          # 返回 code 200 即配置成功
-python3 scripts/uzyiot_api.py product-list   # 查询产品列表
-```
+直接用自然语言让 agent 调用即可，例如：
 
-> 不想用 `env.ini` 时，也可用 `--token` 或 `--app-id/--app-secret` 直接传参，或设置环境变量 `UZYIOT_TOKEN` / `UZYIOT_APP_ID` + `UZYIOT_APP_SECRET`。详见 [`SKILL.md`](./SKILL.md) 的「凭证获取规则」。
+> 帮我验证下配置通不通，然后把产品列表拉出来
+
+agent 会在后台执行对应命令（如 `login`、`product-list` 等）并返回结果，`code=200` 即表示成功。更多可用接口见 [`SKILL.md`](./SKILL.md)。
