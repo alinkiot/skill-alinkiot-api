@@ -1,6 +1,6 @@
 # uzyiot-api SKILL
 
-有智云智能物联网平台开发者接入 REST API 封装。通过一个纯标准库的 Python CLI（`scripts/uzyiot_api.py`）调用平台的产品查询、设备查询、设备在线状态、实时/历史数据以及设备控制指令下发等接口。
+物联网平台开发者接入 REST API 封装。通过一个纯标准库的 Python CLI（`scripts/uzyiot_api.py`）调用平台的产品查询、设备查询、设备在线状态、实时/历史数据以及设备控制指令下发等接口。
 
 详细的接口说明见 [`SKILL.md`](./SKILL.md)。
 
