@@ -59,6 +59,7 @@ uzyiot_api.py — 有智云智能物联网平台 开发者接入 REST API CLI
 import argparse
 import json
 import os
+import ssl
 import sys
 import urllib.error
 import urllib.parse
@@ -66,6 +67,15 @@ import urllib.request
 
 DEFAULT_BASE_URL = "https://prod.uzyiot.com"
 TIMEOUT = 30
+# 仅排查用：为 True 时不校验服务器 HTTPS 证书（如证书过期）。默认关闭，由 --insecure 打开。
+SSL_CONTEXT = None
+
+
+def enable_insecure():
+    """关闭 HTTPS 证书校验（不安全，仅用于证书过期等临时排查）。"""
+    global SSL_CONTEXT
+    SSL_CONTEXT = ssl._create_unverified_context()
+    sys.stderr.write("警告：已关闭 HTTPS 证书校验（--insecure），凭证可能被中间人截获，仅限临时排查。\n")
 
 # env.ini 位于 skill 根目录（本脚本在 skills/uzyiot-api/scripts/ 下）
 _ENV_INI_PATH = os.path.join(
@@ -155,7 +165,7 @@ def _request(method, url, headers=None, body=None):
 
     req = urllib.request.Request(url=url, data=data, method=method, headers=headers)
     try:
-        with urllib.request.urlopen(req, timeout=TIMEOUT) as resp:
+        with urllib.request.urlopen(req, timeout=TIMEOUT, context=SSL_CONTEXT) as resp:
             raw = resp.read().decode("utf-8", errors="replace")
             return resp.status, _try_json(raw)
     except urllib.error.HTTPError as e:
@@ -711,6 +721,12 @@ def build_parser():
         ),
     )
 
+    parser.add_argument(
+        "--insecure",
+        action="store_true",
+        help="不校验服务器 HTTPS 证书（仅限证书过期等临时排查，不安全，默认关闭）",
+    )
+
     sub = parser.add_subparsers(dest="command", required=True, metavar="<command>")
 
     # login
@@ -869,6 +885,8 @@ def build_parser():
 def main(argv=None):
     parser = build_parser()
     args = parser.parse_args(argv)
+    if args.insecure:
+        enable_insecure()
     # 解析 base_url 优先级：--base-url > UZYIOT_BASE_URL > env.ini host > 默认
     if not args.base_url:
         args.base_url = (
