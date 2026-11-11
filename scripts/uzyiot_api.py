@@ -11,11 +11,22 @@ uzyiot_api.py — 有智云智能物联网平台 开发者接入 REST API CLI
   产品
     product-list       查询产品列表（GET /iotapi/system/product/list）
     product-detail     查询产品详情（GET /iotapi/system/product/:ID）
+    product-batch      批量查询产品详情（GET /iotapi/system/product/:ID1,:ID2,...）
 
   设备
     device-list        查询设备列表（GET /iotapi/system/device/list）
     device-detail      查询设备详情（GET /iotapi/system/device/:ID）
+    device-batch       批量查询设备详情（GET /iotapi/system/device/:ID1,:ID2,...）
     device-online      查询设备在线状态（GET /iotapi/system/device/online）
+
+  场景
+    scene-list         查询场景列表（GET /iotapi/system/scene/list）
+    scene-detail       查询场景详情（GET /iotapi/system/scene/:ID）
+    scene-device       查询场景下的设备（GET /iotapi/system/scene_device/list）
+    scene-view         查询场景视图（GET /iotapi/system/scene_view/list）
+
+  字典
+    dict-data          查询字典数据（GET /iotapi/system/dict_data/list）
 
   数据
     device-last        查询设备实时数据（GET /iotapi/system/device/history/last）
@@ -422,6 +433,14 @@ def cmd_product_list(args):
     call_api(args, "GET", "/iotapi/system/product/list", params=params)
 
 
+def cmd_product_batch(args):
+    ids = ",".join(i.strip() for i in args.ids.split(",") if i.strip())
+    if not ids:
+        sys.stderr.write("错误：--ids 不能为空。\n")
+        sys.exit(1)
+    call_api(args, "GET", f"/iotapi/system/product/{ids}")
+
+
 def cmd_product_detail(args):
     call_api(args, "GET", f"/iotapi/system/product/{args.id}")
 
@@ -433,6 +452,51 @@ def cmd_device_list(args):
         "pageSize": args.page_size,
     }
     call_api(args, "GET", "/iotapi/system/device/list", params=params)
+
+
+def cmd_scene_list(args):
+    params = {
+        "pageNum": args.page_num,
+        "pageSize": args.page_size,
+        "project": args.project,
+    }
+    call_api(args, "GET", "/iotapi/system/scene/list", params=params)
+
+
+def cmd_scene_detail(args):
+    call_api(args, "GET", f"/iotapi/system/scene/{args.id}")
+
+
+def cmd_scene_device(args):
+    params = {
+        "pageNum": args.page_num,
+        "pageSize": args.page_size,
+        "scene": args.scene,
+        "orderby[desc]": args.order_by_desc,
+    }
+    call_api(args, "GET", "/iotapi/system/scene_device/list", params=params)
+
+
+def cmd_scene_view(args):
+    params = {"scene": args.scene, "sceneType": args.scene_type}
+    call_api(args, "GET", "/iotapi/system/scene_view/list", params=params)
+
+
+def cmd_dict_data(args):
+    call_api(
+        args,
+        "GET",
+        "/iotapi/system/dict_data/list",
+        params={"dictType": args.dict_type},
+    )
+
+
+def cmd_device_batch(args):
+    ids = ",".join(i.strip() for i in args.ids.split(",") if i.strip())
+    if not ids:
+        sys.stderr.write("错误：--ids 不能为空。\n")
+        sys.exit(1)
+    call_api(args, "GET", f"/iotapi/system/device/{ids}")
 
 
 def cmd_device_detail(args):
@@ -652,6 +716,12 @@ def build_parser():
     _add_auth_args(p)
     p.set_defaults(func=cmd_product_list)
 
+    # product-batch
+    p = sub.add_parser("product-batch", help="批量查询产品详情（多个产品 ID）")
+    p.add_argument("--ids", required=True, help="产品 ID，多个用逗号分隔，如 85,143")
+    _add_auth_args(p)
+    p.set_defaults(func=cmd_product_batch)
+
     # product-detail
     p = sub.add_parser("product-detail", help="查询产品详情（按产品 ID）")
     p.add_argument("--id", required=True, help="产品 ID")
@@ -665,6 +735,48 @@ def build_parser():
     p.add_argument("--page-size", type=int, default=20, help="每页数量，默认 20")
     _add_auth_args(p)
     p.set_defaults(func=cmd_device_list)
+
+    # scene-list
+    p = sub.add_parser("scene-list", help="查询场景列表")
+    p.add_argument("--project", help="项目 ID（登录响应中的 projectId）")
+    p.add_argument("--page-num", type=int, default=1, help="页码，默认 1")
+    p.add_argument("--page-size", type=int, default=10, help="每页数量，默认 10")
+    _add_auth_args(p)
+    p.set_defaults(func=cmd_scene_list)
+
+    # scene-detail
+    p = sub.add_parser("scene-detail", help="查询场景详情（按场景 ID）")
+    p.add_argument("--id", required=True, help="场景 ID")
+    _add_auth_args(p)
+    p.set_defaults(func=cmd_scene_detail)
+
+    # scene-device
+    p = sub.add_parser("scene-device", help="查询场景下的设备列表（场景-设备关联）")
+    p.add_argument("--scene", required=True, help="场景 ID（scene-list 返回的 id）")
+    p.add_argument("--page-num", type=int, default=1, help="页码，默认 1")
+    p.add_argument("--page-size", type=int, default=1000, help="每页数量，默认 1000")
+    p.add_argument("--order-by-desc", default="createTime", help="降序排序字段，默认 createTime")
+    _add_auth_args(p)
+    p.set_defaults(func=cmd_scene_device)
+
+    # scene-view
+    p = sub.add_parser("scene-view", help="查询场景视图（全景图、设备地图、自定义视图等）")
+    p.add_argument("--scene", required=True, help="场景 ID（scene-list 返回的 id）")
+    p.add_argument("--scene-type", help="视图类型，如 panoramic（全景图）；不传则不过滤")
+    _add_auth_args(p)
+    p.set_defaults(func=cmd_scene_view)
+
+    # dict-data
+    p = sub.add_parser("dict-data", help="查询字典数据（按字典类型）")
+    p.add_argument("--dict-type", required=True, help="字典类型，如 iot_data_type")
+    _add_auth_args(p)
+    p.set_defaults(func=cmd_dict_data)
+
+    # device-batch
+    p = sub.add_parser("device-batch", help="批量查询设备详情（多个设备 ID）")
+    p.add_argument("--ids", required=True, help="设备 ID，多个用逗号分隔，如 1095,1096,1633")
+    _add_auth_args(p)
+    p.set_defaults(func=cmd_device_batch)
 
     # device-detail
     p = sub.add_parser("device-detail", help="查询设备详情（按设备 ID）")
