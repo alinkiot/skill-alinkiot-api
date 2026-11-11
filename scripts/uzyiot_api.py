@@ -29,6 +29,7 @@ uzyiot_api.py — 有智云智能物联网平台 开发者接入 REST API CLI
     dict-data          查询字典数据（GET /iotapi/system/dict_data/list）
 
   数据
+    device-last-batch  批量查询多台设备实时数据（GET /iotapi/system/device/history/last?batch=true）
     device-last        查询设备实时数据（GET /iotapi/system/device/history/last）
     history-list       查询设备历史数据（GET /iotapi/system/history/list）
 
@@ -524,6 +525,15 @@ def cmd_device_last(args):
     )
 
 
+def cmd_device_last_batch(args):
+    call_api(
+        args,
+        "GET",
+        "/iotapi/system/device/history/last",
+        params={"addr": args.addr, "batch": "true"},
+    )
+
+
 def _history_base_params(args):
     """构造 history/list 的公共查询参数（不含分页），处理 step=0 省略逻辑。"""
     params = {
@@ -801,6 +811,12 @@ def build_parser():
     p.add_argument("--project", help="项目 ID；配合 --readable 加速设备匹配，可选")
     _add_auth_args(p)
     p.set_defaults(func=cmd_device_last)
+
+    # device-last-batch
+    p = sub.add_parser("device-last-batch", help="批量查询多台设备的实时数据（batch=true）")
+    p.add_argument("--addr", required=True, help="设备地址，多个用逗号分隔，如 addr1,addr2")
+    _add_auth_args(p)
+    p.set_defaults(func=cmd_device_last_batch)
 
     # history-list
     p = sub.add_parser("history-list", help="查询设备历史数据")

@@ -1,6 +1,6 @@
 ---
 name: uzyiot-api
-description: 有智云智能物联网平台（https://prod.uzyiot.com）开发者接入 REST API 封装。提供应用侧凭证（AppID/AppSecret）换取 Token，以及产品/设备/场景/字典查询、设备在线状态、设备实时与历史数据等 REST 接口；文档并说明设备 MQTT/TCP 接入、应用侧 MQTT 通讯与数据同步机制，并额外提供设备控制指令下发（平台扩展接口）的 Python CLI 调用能力。适用于第三方系统/AI 应用通过 HTTP 对接有智云平台做数据同步、设备查询与设备控制。
+description: 有智云智能物联网平台（https://prod.uzyiot.com）开发者接入 REST API 封装。提供应用侧凭证（AppID/AppSecret）换取 Token，以及产品/设备/场景/字典查询、设备在线状态、设备实时与历史数据等 REST 接口；文档并说明设备 MQTT/TCP 接入、应用侧 MQTT 通讯与应用数据同步机制，并额外提供设备控制指令下发（平台扩展接口）的 Python CLI 调用能力。适用于第三方系统/AI 应用通过 HTTP 对接有智云平台做数据同步、设备查询与设备控制。
 ---
 
 # 有智云物联网平台 开发者接入 API
@@ -338,6 +338,69 @@ python3 scripts/uzyiot_api.py device-online --token <token> --addr addr1,addr2
 
 > `addr` 来自设备详情（`device-batch` / `device-detail`）的 `addr` 字段，不是设备 ID。
 
+### 下发设备控制指令
+
+> **控制指令从哪来：** 产品详情（`product-detail`）返回的 `control` 字段就是该产品的「下行控制指令」定义（JSON 字符串，需解析）。下发前应先查它，确定：
+> - `name`：可控制的物模型变量名 → 对应 `--name`
+> - `options[].value`：该变量允许下发的值（`label` 为含义，如「开」「关」）→ 对应 `--value`
+> - `format`：下发值的数据类型，取值来自字典 `iot_data_type`（`integer`/`float`/`string`/`array`，可用 `dict-data --dict-type iot_data_type` 查询）外加 `hex`。对应 CLI：`integer`→`--type int`，`float`→`--type float`，`string`→`--type string`，`hex`→`--hex`（CLI 转成整数再下发）。`array` 暂不支持。
+>   - 服务端说明：REST 接口 `POST /system/control/device`（`send_cmd`）只读取 `addr`/`name`/`value`，**不会读取也不会转发 `format`**；Modbus 协议收到字符串值时会按十进制解析，所以 `FF00` 这类 hex 值必须由调用方转成整数（即用 `--hex`），直接发字符串 `"FF00"` 会被解析失败并按 0 下发。前端走 MQTT `p/in`，才会带 `format` 并由协议模块处理。
+> - `ctrlType`：控件类型，共三类（见下表）
+>
+> | `ctrlType` | 类型 | 特征 | 下发取值 |
+> |------------|------|------|----------|
+> | `enum` | 枚举型 | 带 `options`（`label`/`value`） | 只能从 `options[].value` 里选一个 |
+> | `btn` | 按钮型 | 带固定 `value`（`desc` 为按钮说明），点击即下发 | 固定使用该 `value`，无需用户输入 |
+> | `input` | 输入型 | 无 `options`/`value`，由用户自由输入 | 用户输入的值；`format` 为 `hex` 时按 16 进制字符串输入并加 `--hex` |
+>
+> 例：`control` 为
+> ```json
+> [
+>   {"name":"status","title":"按钮","format":"hex","ctrlType":"enum","options":[{"label":"开","value":"FF00"},{"label":"关","value":"00"}]},
+>   {"name":"clean","title":"清空","desc":"按钮","value":"1","format":"hex","ctrlType":"btn"},
+>   {"name":"set","title":"设置","format":"hex","ctrlType":"input"}
+> ]
+> ```
+> 则：
+> - 枚举：「开」= `--name status --value FF00 --hex`，「关」= `--name status --value 00 --hex`
+> - 按钮：「清空」= `--name clean --value 1 --hex`（固定值取自 `value`，`format=hex` 故加 `--hex`）
+> - 输入：「设置」= `--name set --value <用户输入> --hex`（值由用户提供，需向用户询问）
+>
+> 产品 `control` 为空时表示未配置控制指令，不要凭空猜测变量名和值，应向用户确认。
+>
+> 流程：`device-list` 取设备所属产品 ID（`product`）→ `product-detail --id <product>` 读取 `control` → `device-control` 下发。
+
+对应接口：`POST /iotapi/system/control/device`
+
+> 说明：本接口为平台扩展接口。后端收到后会组装物模型「写」消息并通过内部 MQTT（`p/in/<addr>`）下发给设备；设备在线才会真正到达，离线时接口仍返回成功但不下发。
+
+| 参数 | 必填 | 默认 | 说明 |
+|------|------|------|------|
+| `--addr` | ✅ | — | 设备地址 |
+| `--name` | ✅ | — | 物模型变量名（可从 `product-detail` 的 `thing` 里查到，取 `access` 为 `rw`/`write` 的项） |
+| `--value` | ✅ | — | 下发值，配合 `--hex` / `--type` 决定解析方式 |
+| `--hex` | 可选 | 关 | 将 `--value` 按 16 进制整数解析（如 `FF00` → `65280`，`0000` → `0`）；复刻前端「命令下发」弹窗勾选 Hex 的行为 |
+| `--type` | 可选 | string | `--value` 的类型：`string` / `int` / `float`；指定 `--hex` 时忽略本项 |
+
+```bash
+# 继电器开（hex FF00，等价前端 parseInt("FF00",16)=65280）
+python3 scripts/uzyiot_api.py device-control --addr WIND01 --name status --value FF00 --hex
+
+# 继电器关（hex 0000 = 0）
+python3 scripts/uzyiot_api.py device-control --addr WIND01 --name status --value 0000 --hex
+
+# 下发十进制整数
+python3 scripts/uzyiot_api.py device-control --addr WIND01 --name status --value 1 --type int
+
+# 下发字符串（默认）
+python3 scripts/uzyiot_api.py device-control --addr <addr> --name <var> --value "open"
+```
+
+请求体等价于：`{"msgType":"control_device","name":"<name>","value":<value>}`，`addr` 作为 query 参数。
+成功返回 `{"msg":"操作成功","code":200}`。
+
+> 下发的 `name` 必须是该设备产品物模型里真实存在、且可写的变量；拿不准时先用 `product-detail` 查产品的 `control` 字段（下行控制指令定义：可控变量、`options` 可选值及 `format`），再结合 `thing` 确认。`format` 为 `hex` 时下发加 `--hex`。
+
 ---
 
 ## 场景 API
@@ -504,6 +567,46 @@ python3 scripts/uzyiot_api.py device-last --token <token> --addr <addr>
 
 > 物模型里没有定义的键（设备只上报了心跳/状态时常见）保持原样显示即可；`createtime` 为采集时间戳，`alarmrule` 为空表示无触发中的告警。
 
+### 批量查询设备实时数据
+
+对应接口：`GET /iotapi/system/device/history/last?addr=...&batch=true`（与单设备实时数据同一路径，多一个 `batch=true`）
+
+| 参数 | 必填 | 说明 |
+|------|------|------|
+| `--addr` | ✅ | 设备地址，多个用逗号分隔，如 `addr1,addr2`；设备很多时分批 |
+
+```bash
+python3 scripts/uzyiot_api.py device-last-batch --addr SXCG24050012,SXCG24050016,SXCG24050017
+```
+
+响应 `data` 是**数组**，每项是一台设备的最新一条上报记录，结构与单设备 `device-last` 的 `data` 相同，只是多了 `addr` 用来标识设备：
+
+| 字段 | 说明 |
+|------|------|
+| `addr` | 设备地址 |
+| `createtime` | 采集时间（Unix 秒） |
+| `alarmrule` | 触发中的告警规则，空字符串表示无告警 |
+| 其余键 | 物模型属性键值对，键是属性名（`thing` 的 `name`），如 `temp1`、`temp2` |
+
+```json
+{
+  "msg": "操作成功",
+  "code": 200,
+  "data": [
+    {
+      "temp2": 2.75509e-40,
+      "temp1": 9.1837e-41,
+      "createtime": 1794409206,
+      "alarmrule": "",
+      "addr": "864536071820615A009"
+    }
+  ]
+}
+```
+
+> 单设备 `device-last` 的 `data` 是单个对象（不含 `addr`）；批量接口的 `data` 是数组，每项含 `addr`。按 `addr` 匹配每台设备，返回顺序不一定与传入顺序一致；设备没有上报过数据时，该项可能只有 `addr`。
+> 属性名要翻译成别名和单位时，用 `product-batch` 取物模型后对照（`device-last-batch` 不支持 `--readable`）：先用 `device-batch` 取设备的 `product`，再按 `thing` 的 `name` 映射到 `title` / `unit`。
+
 ### 查询设备历史数据
 
 对应接口：`GET /iotapi/system/history/list`
@@ -542,73 +645,6 @@ python3 scripts/uzyiot_api.py history-list --addr <addr> \
 
 > `--step 0`（不聚合）在本平台服务端有 bug 会报 500，CLI 已自动改为「省略 step」处理，结果等价于原始数据，无需担心。
 > 历史数据查询为空时，确认设备在该时间段内有上报，且时间格式为 `YYYY-MM-DD HH:mm:ss`。
-
----
-
-## 控制 API
-
-### 下发设备控制指令
-
-> **控制指令从哪来：** 产品详情（`product-detail`）返回的 `control` 字段就是该产品的「下行控制指令」定义（JSON 字符串，需解析）。下发前应先查它，确定：
-> - `name`：可控制的物模型变量名 → 对应 `--name`
-> - `options[].value`：该变量允许下发的值（`label` 为含义，如「开」「关」）→ 对应 `--value`
-> - `format`：下发值的数据类型，取值来自字典 `iot_data_type`（`integer`/`float`/`string`/`array`，可用 `dict-data --dict-type iot_data_type` 查询）外加 `hex`。对应 CLI：`integer`→`--type int`，`float`→`--type float`，`string`→`--type string`，`hex`→`--hex`（CLI 转成整数再下发）。`array` 暂不支持。
->   - 服务端说明：REST 接口 `POST /system/control/device`（`send_cmd`）只读取 `addr`/`name`/`value`，**不会读取也不会转发 `format`**；Modbus 协议收到字符串值时会按十进制解析，所以 `FF00` 这类 hex 值必须由调用方转成整数（即用 `--hex`），直接发字符串 `"FF00"` 会被解析失败并按 0 下发。前端走 MQTT `p/in`，才会带 `format` 并由协议模块处理。
-> - `ctrlType`：控件类型，共三类（见下表）
->
-> | `ctrlType` | 类型 | 特征 | 下发取值 |
-> |------------|------|------|----------|
-> | `enum` | 枚举型 | 带 `options`（`label`/`value`） | 只能从 `options[].value` 里选一个 |
-> | `btn` | 按钮型 | 带固定 `value`（`desc` 为按钮说明），点击即下发 | 固定使用该 `value`，无需用户输入 |
-> | `input` | 输入型 | 无 `options`/`value`，由用户自由输入 | 用户输入的值；`format` 为 `hex` 时按 16 进制字符串输入并加 `--hex` |
->
-> 例：`control` 为
-> ```json
-> [
->   {"name":"status","title":"按钮","format":"hex","ctrlType":"enum","options":[{"label":"开","value":"FF00"},{"label":"关","value":"00"}]},
->   {"name":"clean","title":"清空","desc":"按钮","value":"1","format":"hex","ctrlType":"btn"},
->   {"name":"set","title":"设置","format":"hex","ctrlType":"input"}
-> ]
-> ```
-> 则：
-> - 枚举：「开」= `--name status --value FF00 --hex`，「关」= `--name status --value 00 --hex`
-> - 按钮：「清空」= `--name clean --value 1 --hex`（固定值取自 `value`，`format=hex` 故加 `--hex`）
-> - 输入：「设置」= `--name set --value <用户输入> --hex`（值由用户提供，需向用户询问）
->
-> 产品 `control` 为空时表示未配置控制指令，不要凭空猜测变量名和值，应向用户确认。
->
-> 流程：`device-list` 取设备所属产品 ID（`product`）→ `product-detail --id <product>` 读取 `control` → `device-control` 下发。
-
-对应接口：`POST /iotapi/system/control/device`
-
-> 说明：本接口为平台扩展接口。后端收到后会组装物模型「写」消息并通过内部 MQTT（`p/in/<addr>`）下发给设备；设备在线才会真正到达，离线时接口仍返回成功但不下发。
-
-| 参数 | 必填 | 默认 | 说明 |
-|------|------|------|------|
-| `--addr` | ✅ | — | 设备地址 |
-| `--name` | ✅ | — | 物模型变量名（可从 `product-detail` 的 `thing` 里查到，取 `access` 为 `rw`/`write` 的项） |
-| `--value` | ✅ | — | 下发值，配合 `--hex` / `--type` 决定解析方式 |
-| `--hex` | 可选 | 关 | 将 `--value` 按 16 进制整数解析（如 `FF00` → `65280`，`0000` → `0`）；复刻前端「命令下发」弹窗勾选 Hex 的行为 |
-| `--type` | 可选 | string | `--value` 的类型：`string` / `int` / `float`；指定 `--hex` 时忽略本项 |
-
-```bash
-# 继电器开（hex FF00，等价前端 parseInt("FF00",16)=65280）
-python3 scripts/uzyiot_api.py device-control --addr WIND01 --name status --value FF00 --hex
-
-# 继电器关（hex 0000 = 0）
-python3 scripts/uzyiot_api.py device-control --addr WIND01 --name status --value 0000 --hex
-
-# 下发十进制整数
-python3 scripts/uzyiot_api.py device-control --addr WIND01 --name status --value 1 --type int
-
-# 下发字符串（默认）
-python3 scripts/uzyiot_api.py device-control --addr <addr> --name <var> --value "open"
-```
-
-请求体等价于：`{"msgType":"control_device","name":"<name>","value":<value>}`，`addr` 作为 query 参数。
-成功返回 `{"msg":"操作成功","code":200}`。
-
-> 下发的 `name` 必须是该设备产品物模型里真实存在、且可写的变量；拿不准时先用 `product-detail` 查产品的 `control` 字段（下行控制指令定义：可控变量、`options` 可选值及 `format`），再结合 `thing` 确认。`format` 为 `hex` 时下发加 `--hex`。
 
 ---
 
@@ -654,18 +690,20 @@ python3 scripts/uzyiot_api.py device-control --addr <addr> --name <var> --value 
 
 **连接地址：** 同样与 API 地址一致（`env.ini` 的 `host` 主机名）；TCP 端口以平台实际开放为准，可在平台设备详情「设备鉴权 → TCP 透传接入」页面查看。
 
-**1. 登录注册**（建立 TCP 连接后先发送，末尾 `\r\n` 不可省略）：
+**1. 登录注册**（建立 TCP 连接后先发送。报文以文本 `\r\n` 结尾，不可省略；注意平台按**文本字符**匹配——即 4 个 ASCII 字符 `\` `r` `\` `n`（十六进制 `5C 72 5C 6E`），不是回车换行字节 `0D 0A`；在 DTU 配置里直接填写 `\r\n` 文本即可）：
 
 | 认证方式 | 报文 |
 |----------|------|
 | 一机一证 | `reg,1,{addr},{dk},{ds}\r\n` |
 | 一型一密 | `reg,2,{addr},{pk},{ps}\r\n` |
 
+字段之间的分隔符可以是 `,`、`|` 或 `/`。登录失败时平台向设备返回错误码并断开连接：`01` 认证失败（设备或密钥不对）、`02` 产品协议未找到、`99` 其他错误；登录成功没有专门的成功响应，设备可直接开始发心跳和数据。
+
 **2. 心跳保活**：定时发送 `ping\r\n`，建议间隔 30～60 秒，避免被服务器因超时断开。
 
 **3. 数据上报与指令接收**：同一条 TCP 连接双向通信——设备按物模型把数据以 JSON 发送到平台；平台的控制指令直接通过该连接推送给设备（具体二进制/JSON 格式取决于协议插件）。
 
-流程：建立 TCP 长连接 → 发 `reg` → 登录成功后平台返回成功响应 → 定时 `ping` → 上报数据 / 接收指令。
+流程：建立 TCP 长连接 → 发 `reg` → 未收到错误码即登录成功 → 定时 `ping` → 上报数据。
 
 
 ### 接入方式对比
@@ -677,6 +715,110 @@ python3 scripts/uzyiot_api.py device-control --addr <addr> --name <var> --value 
 | 上报 | 发布 `d/out/{addr}` | TCP 直连发送 | — |
 | 接收下发 | 订阅 `d/in/{addr}` | TCP 直连接收 | 见下文 |
 | 心跳 | MQTT keepalive | `ping\r\n` | MQTT keepalive |
+
+---
+
+## 协议解析
+
+设备把数据发到平台后，平台按产品的**协议标识**把原始数据解析成物模型 JSON，再保存并推送给应用。当前支持三种协议：
+
+| 协议标识 | 名称 | 接入 | 数据特点 |
+|----------|------|------|----------|
+| `tcp-json` | JSON over TCP | TCP | 设备主动发送 JSON，多条之间以文本 `\r\n` 分隔 |
+| `Modbus-RTU` | Modbus RTU over TCP | TCP | 设备是 Modbus 从机，**平台作为主站按物模型配置轮询**读取，经 DTU / 网关透传 |
+| `mqtt-json` | JSON over MQTT | MQTT | 设备向 `d/out/{addr}` 发布 JSON |
+
+三种协议解析出原始数据后，都进入同一套**公共处理**，输出统一的物模型 JSON：
+
+```json
+{ "ts": 1741015860, "temp": { "value": 27.9, "ts": 1741015860 } }
+```
+
+**公共处理规则**（按产品物模型 `thing` 逐项处理）
+
+1. **公式（`formula`）先行**：物模型属性可配置 `formula`（公共函数名），在以下规则之前执行，把设备的原始 JSON 重组成物模型需要的结构。能力包括：路径引用 `#a/b/items/1/c`（`items/N` 取数组第 N 个元素，从 1 开始）、当前时间 `${CURRENT_TIME}`、时间字符串转 Unix 秒、正则提取 / 替换
+2. **只保留物模型中定义的属性**：键不在 `thing` 的 `name` 里则丢弃；本次没有上报的属性不更新
+3. **类型**：`string` 原样保留；`integer` / `int` / `float` 收到字符串时转成数字
+4. **倍率和偏移**：`值 = 原值 × rate + offset`（`rate` 默认 1，`offset` 默认 0）
+5. **精度**：配置了 `precision` 则按该小数位四舍五入
+6. **占位值**：值以 `alink_ignore` 开头表示「本次无有效数据」，原样保留不转换
+7. 时间戳：每个属性可带自己的 `ts`；缺省用顶层 `ts`；顶层 `ts` 缺省用平台接收时间
+
+> `rate`、`precision` 在**入库前**就已经应用，应用从 REST 或 MQTT 拿到的 `value` 已是换算后的最终值，**不需要再乘 `rate`**。
+
+### JSON over TCP（`tcp-json`）
+
+**接入：** TCP 连接 → `reg` 登录（见「TCP 透传接入」）→ 定时 `ping` → 发送数据。
+
+**数据格式：** 每条数据是一个 JSON 对象，多条之间以文本 `\r\n` 分隔（同样是 4 个 ASCII 字符，不是 `0D 0A` 字节），可以一次连发多条：
+
+```
+{"Serial number":"afaa6832380e","Temperature 1":12.8,"Humidity":49.8}\r\n{"Serial number":"afaa6832380f","Temperature 1":13.1,"Humidity":50.2}\r\n
+```
+
+**要点：**
+- 每条 JSON 必须带 **`Serial number`** 字段，值是数据所属设备的地址；平台靠它找到设备，缺失则该条数据无法处理
+- `tcp-json` 面向**网关类产品**：设备以网关地址登录，每条数据用 `Serial number` 指明所属子设备
+- 设备原始键通常与物模型属性名不一致（如 `Temperature 1`），用物模型属性的 `formula` 映射成属性名（如 `temperature`），再走公共处理规则
+- 当前**不支持下发控制**：平台收到写指令后不会通过 TCP 连接转发给设备
+
+### Modbus RTU over TCP（`Modbus-RTU`）
+
+适用于 Modbus RTU 设备（仪表、传感器、继电器等）经 DTU / 网关透传到 TCP。设备端不需要理解平台协议：DTU 完成 `reg` 登录后，对平台发来的 Modbus RTU 请求透传应答即可。
+
+**工作方式：** 平台是 Modbus **主站**，按产品物模型里配置的寄存器**周期性轮询**，把应答解析成属性值；控制指令则转成写请求下发。
+
+**物模型配置（每个属性的 `modbus` 对象）：**
+
+| 字段 | 说明 |
+|------|------|
+| `rFunCode` | 读功能码，16 进制字符串，如 `"01"`（线圈）、`"03"`（保持寄存器）、`"04"`（输入寄存器） |
+| `start` | 起始地址，16 进制字符串，如 `"0000"` |
+| `quantity` | 读取数量（寄存器 / 线圈个数） |
+| `wFunCode` | 写功能码，16 进制字符串，如 `"05"`（写单个线圈）、`"06"`（写单个寄存器） |
+| `slaveId` | 从站地址，16 进制字符串，缺省 `"01"`；网关下的子设备以子设备地址作为从站地址 |
+| `signed` | `"signed"`（默认）/ `"unsigned"` |
+| `endianness` | 字节序：`"little"`（默认）/ `"big"`；`"big2"` / `"little2"` 表示每个 16 位字内先交换两个字节再按大端 / 小端解释 |
+
+物模型属性本身的相关字段：`type`（`integer` / `float` / `string`）、`access`（`read` / `rw` 会被轮询；`write` 只写不轮询）、`freq`（轮询周期，秒；缺省或 0 为 30 秒）、`rate` / `precision` / `offset`（公共处理）。
+
+**请求帧：** `[从站地址 1B][功能码 1B][起始地址 2B][数量 2B][CRC16 2B]`，CRC16 为标准 Modbus CRC，低字节在前。例如从站 `01` 读保持寄存器 `0000` 起 1 个：`01 03 00 00 00 01 84 0A`。
+
+**应答解析：**
+1. 校验 CRC16 和从站地址，不符则本次读取作废
+2. 读应答取数据区（前有 1 字节长度）；写应答原样回显
+3. 按**数据区字节数**确定位宽（1 / 2 / 4 / 8 字节 → 8 / 16 / 32 / 64 位），再按 `signed`、`endianness` 和属性 `type` 解释成数值
+4. 等待应答最长 10 秒；超时则该属性本轮记为占位值 `alink_ignore_sync_data_timeout`，其他错误（CRC、从站地址不符）该属性本轮跳过
+5. 一轮轮询的所有属性合并成一条 JSON，进入公共处理规则
+
+**下发控制（写）：**
+- `name` 必须是 `access` 为 `rw` / `write` 且配置了 `modbus` 的属性
+- 值统一转成**整数**：整数原样、浮点四舍五入、字符串默认按十进制解析，`format` 为 `hex` 时按 16 进制解析
+- 写帧：`[从站][wFunCode][起始地址 2B][值 2B][CRC16]`。即只支持**写单个线圈（05）/ 写单个寄存器（06）**，不支持一次写多个寄存器（10H）
+- 线圈开 = `FF00`（65280），关 = `0000`（0）；所以 REST 下发线圈控制要用 `--hex`（见「设备 API」）
+
+**网关与子设备：** 网关产品下的子设备共用网关的 TCP 连接，请求逐个串行发送，以子设备地址（16 进制）作为从站地址。
+
+### JSON over MQTT（`mqtt-json`）
+
+**接入：** MQTT 连接（clientId / username / password 见「MQTT 接入」）→ 订阅 `d/in/{addr}` → 向 `d/out/{addr}` 发布数据。
+
+**数据格式：** 一个 JSON 对象，键是物模型属性名，值可以是裸值，也可以是带时间戳的对象；顶层 `ts` 为 Unix 秒整数：
+
+```json
+{
+  "ts": 1741015860,
+  "temp": 27.9,
+  "humidity": { "value": 65.0, "ts": 1741015859 }
+}
+```
+
+**要点：**
+- 设备直接按物模型属性名上报；上报格式与物模型不一致时，用 `formula` 重组
+- 物模型里没有的键会被丢弃，所以新增数据点要先在产品物模型里定义
+- 设备由 MQTT 连接本身标识（clientId 里的地址），**不需要**在 JSON 里再带设备地址
+
+**下行（平台 → 设备）：** 通过 REST（`device-control`）或应用 MQTT 下发控制时，平台组装 `{"type":"write","name":"<属性名>","value":<值>}`（经应用 MQTT 下发且带 `format` 时一并携带），设备从 `d/in/{addr}` 收到后自行解析并执行。
 
 ---
 
@@ -782,11 +924,11 @@ python3 scripts/uzyiot_api.py device-control --addr <addr> --name <var> --value 
 平台转换后向 `p/in/{addr}` 转发（设备经 `d/in/{addr}` 收到）。服务端行为：
 - `addr`、`type`、`name`、`value` 必填，缺失则消息被忽略；`format` 可选，会透传给协议模块（Modbus 下 `format=hex` 时把字符串按 16 进制解析，否则按十进制）
 - 设备当前不在线（无会话）时，指令会缓存（`device_cmd`），待设备上线再处理
-- 同样的控制也可走 REST：`device-control` 子命令（见「控制 API」），区别是 REST 不转发 `format`
+- 同样的控制也可走 REST：`device-control` 子命令（见「设备 API」），区别是 REST 不转发 `format`
 
 ---
 
-## 数据同步机制
+## 应用数据同步机制
 
 适用于应用在本地维护一份平台设备/产品数据的场景：平台数据变化后，通过 MQTT 通知应用重新同步，应用同步完后回报状态。
 
@@ -888,7 +1030,7 @@ scene-device(scene) → 设备 ID 列表
 device-batch(ids)   → 设备详情（addr / product / 经纬度）
 product-batch(去重后的 product) → 物模型 / 控制 / 面板
 device-online(addr 列表) → 在线状态
-device-last(addr 列表)   → 最新数据，按物模型翻译为「别名 值 单位」
+device-last-batch(addr 列表) → 批量取最新数据，按物模型翻译为「别名 值 单位」
 ```
 
 ### 流程 2：设备详情页
@@ -955,6 +1097,7 @@ device-control(addr, name, value)；设备离线时接口仍返回成功但不�
 | `scene-view` | GET | `/iotapi/system/scene_view/list` | scene |
 | `dict-data` | GET | `/iotapi/system/dict_data/list` | dict-type |
 | `device-last` | GET | `/iotapi/system/device/history/last` | addr |
+| `device-last-batch` | GET | `/iotapi/system/device/history/last?batch=true` | addr |
 | `history-list` | GET | `/iotapi/system/history/list` | addr |
 | `device-control` | POST | `/iotapi/system/control/device` | addr, name, value |
 
@@ -974,5 +1117,5 @@ device-control(addr, name, value)；设备离线时接口仍返回成功但不�
 ## 备注
 
 - 脚本仅使用 Python 标准库（`urllib`），无需安装第三方依赖，`python3` 即可运行。
-- 本 skill 覆盖开发者接入的 **REST API**，外加平台扩展的 **设备控制接口**（`device-control`）；设备侧 MQTT/TCP 接入、应用侧 MQTT 消息收发与数据同步属于长连接协议，已在文档「设备接入」「应用侧 MQTT 接入」「数据同步机制」中说明，但不在本 CLI 范围内（CLI 只封装 REST）。
+- 本 skill 覆盖开发者接入的 **REST API**，外加平台扩展的 **设备控制接口**（`device-control`）；设备侧 MQTT/TCP 接入、应用侧 MQTT 消息收发与数据同步属于长连接协议，已在文档「设备接入」「应用侧 MQTT 接入」「应用数据同步机制」中说明，但不在本 CLI 范围内（CLI 只封装 REST）。
 - 查看所有子命令：`python3 scripts/uzyiot_api.py -h`；查看单个子命令参数：`python3 scripts/uzyiot_api.py <command> -h`。
